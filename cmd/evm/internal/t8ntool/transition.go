@@ -212,7 +212,7 @@ func Main(ctx *cli.Context) error {
 	// Iterate over all the tests, run them and aggregate the results
 
 	// Run the test and aggregate the result
-	state, result, err := prestate.Apply(vmConfig, chainConfig, txs, ctx.Int64(RewardFlag.Name), getTracer)
+	state, result, err := prestate.Apply(vmConfig, chainConfig, txs, 0, getTracer)
 	if err != nil {
 		return err
 	}

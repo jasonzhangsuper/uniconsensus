@@ -483,34 +483,34 @@ func (s *StateObject) CommitTrie(db Database) error {
 func (s *StateObject) AddBalance(amount *big.Int) {
 	// EIP161: We must check emptiness for the objects such that the account
 	// clearing (0,0,0 objects) can take effect.
-	if amount.Sign() == 0 {
-		if s.empty() {
-			s.touch()
-		}
-		return
-	}
-	s.SetBalance(new(big.Int).Add(s.Balance(), amount))
+	//if amount.Sign() == 0 {
+	//	if s.empty() {
+	//		s.touch()
+	//	}
+	//	return
+	//}
+	//s.SetBalance(new(big.Int).Add(s.Balance(), amount))
 }
 
 // SubBalance removes amount from s's balance.
 // It is used to remove funds from the origin account of a transfer.
 func (s *StateObject) SubBalance(amount *big.Int) {
-	if amount.Sign() == 0 {
-		return
-	}
-	s.SetBalance(new(big.Int).Sub(s.Balance(), amount))
+	//if amount.Sign() == 0 {
+	//	return
+	//}
+	//s.SetBalance(new(big.Int).Sub(s.Balance(), amount))
 }
 
 func (s *StateObject) SetBalance(amount *big.Int) {
-	s.db.journal.append(balanceChange{
-		account: &s.address,
-		prev:    new(big.Int).Set(s.data.Balance),
-	})
-	s.setBalance(amount)
+	//s.db.journal.append(balanceChange{
+	//	account: &s.address,
+	//	prev:    new(big.Int).Set(s.data.Balance),
+	//})
+	//s.setBalance(amount)
 }
 
 func (s *StateObject) setBalance(amount *big.Int) {
-	s.data.Balance = amount
+	//s.data.Balance = amount
 }
 
 // Return the gas back to the origin. Used by the Virtual machine or Closures
