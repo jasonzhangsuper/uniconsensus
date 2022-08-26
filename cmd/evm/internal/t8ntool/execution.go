@@ -198,30 +198,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 		txIndex++
 	}
 	statedb.IntermediateRoot(chainConfig.IsEIP158(vmContext.BlockNumber))
-	// Add mining reward?
-	if miningReward > 0 {
-		// Add mining reward. The mining reward may be `0`, which only makes a difference in the cases
-		// where
-		// - the coinbase suicided, or
-		// - there are only 'bad' transactions, which aren't executed. In those cases,
-		//   the coinbase gets no txfee, so isn't created, and thus needs to be touched
-		var (
-			blockReward = big.NewInt(miningReward)
-			minerReward = new(big.Int).Set(blockReward)
-			perOmmer    = new(big.Int).Div(blockReward, big.NewInt(32))
-		)
-		for _, ommer := range pre.Env.Ommers {
-			// Add 1/32th for each ommer included
-			minerReward.Add(minerReward, perOmmer)
-			// Add (8-delta)/8
-			reward := big.NewInt(8)
-			reward.Sub(reward, big.NewInt(0).SetUint64(ommer.Delta))
-			reward.Mul(reward, blockReward)
-			reward.Div(reward, big.NewInt(8))
-			statedb.AddBalance(ommer.Address, reward)
-		}
-		statedb.AddBalance(pre.Env.Coinbase, minerReward)
-	}
+
 	// Commit block
 	statedb.Finalise(chainConfig.IsEIP158(vmContext.BlockNumber))
 	statedb.AccountsIntermediateRoot()
@@ -248,7 +225,6 @@ func MakePreState(db ethdb.Database, accounts core.GenesisAlloc) *state.StateDB 
 	for addr, a := range accounts {
 		statedb.SetCode(addr, a.Code)
 		statedb.SetNonce(addr, a.Nonce)
-		statedb.SetBalance(addr, a.Balance)
 		for k, v := range a.Storage {
 			statedb.SetState(addr, k, v)
 		}

@@ -18,14 +18,12 @@ package core
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/consensus"
-	"math"
-	"math/big"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	"math"
+	"math/big"
 )
 
 /*
@@ -191,7 +189,6 @@ func (st *StateTransition) buyGas() error {
 	st.gas += st.msg.Gas()
 
 	st.initialGas = st.msg.Gas()
-	st.state.SubBalance(st.msg.From(), mgval)
 	return nil
 }
 
@@ -276,13 +273,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 	st.refundGas()
 
-	// consensus engine is parlia
-	if st.evm.ChainConfig().Parlia != nil {
-		st.state.AddBalance(consensus.SystemAddress, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
-	} else {
-		st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
-	}
-
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
 		Err:        vmerr,
@@ -297,10 +287,6 @@ func (st *StateTransition) refundGas() {
 		refund = st.state.GetRefund()
 	}
 	st.gas += refund
-
-	// Return ETH for remaining gas, exchanged at the original rate.
-	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-	st.state.AddBalance(st.msg.From(), remaining)
 
 	// Also return remaining gas to the block gas counter so it is
 	// available for the next transaction.
