@@ -324,6 +324,39 @@ func (p *Parlia) IsCallerPermit(tx *types.Transaction, header *types.Header) (bo
 	return *out, nil
 }
 
+// CallerRate get caller's rate from PermisstionContract
+func (p *Parlia) CallerRate(tx *types.Transaction, header *types.Header) (*uint64, error) {
+	// block
+	blockNr := rpc.BlockNumberOrHashWithHash(header.Hash(), false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // cancel when we are finished consuming integers
+	//check rate
+	method := "getRate"
+
+	sender, err := types.Sender(p.signer, tx)
+	data, err := p.potaPermissionABI.Pack(method, sender)
+	if err != nil {
+		log.Error("Unable to pack tx", "method", method, "error", err)
+		return new(uint64), err
+	}
+	// call
+	msgData := (hexutil.Bytes)(data)
+	toAddress := common.HexToAddress(systemcontracts.PermissionContract)
+	gas := (hexutil.Uint64)(uint64(math.MaxUint64 / 2))
+	result, err := p.ethAPI.Call(ctx, ethapi.CallArgs{
+		Gas:  &gas,
+		To:   &toAddress,
+		Data: &msgData,
+	}, blockNr, nil)
+	if err != nil {
+		return new(uint64), err
+	}
+	out := new(uint64)
+	*out = uint64(result[31])
+	return out, nil
+}
+
 // Author implements consensus.Engine, returning the SystemAddress
 func (p *Parlia) Author(header *types.Header) (common.Address, error) {
 	return header.Coinbase, nil

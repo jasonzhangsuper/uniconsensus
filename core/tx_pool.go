@@ -83,6 +83,10 @@ var (
 	// address.
 	ErrSendToNoncontract = errors.New("sending to non-contract address is disallowed")
 
+	// ErrRateReached is returned if the submitted transaction count reaches
+	// rate in permission contract.
+	ErrRateReached = errors.New("rate reached")
+
 	// ErrNoPermission is returned if a transaction t is not permitted
 	ErrNoPermission = errors.New("Tx is not permitted")
 
@@ -586,15 +590,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if tx.To() != nil && pool.currentState.GetCodeSize(*tx.To()) == 0 {
 		return ErrSendToNoncontract
 	}
-	posa, isPoSA := (pool.chain.Engine()).(consensus.PoSA)
-	if isPoSA {
-		//Check tx permission
-		if isPermit, err := posa.IsCallerPermit(tx, pool.chain.CurrentBlock().Header()); err != nil {
-			return err
-		} else if !isPermit {
-			return ErrNoPermission
-		}
-	}
 
 	// Reject transactions over defined size to prevent DOS attacks
 	if uint64(tx.Size()) > txMaxSize {
@@ -634,6 +629,27 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	if tx.Gas() < intrGas {
 		return ErrIntrinsicGas
+	}
+
+	posa, isPoSA := (pool.chain.Engine()).(consensus.PoSA)
+	if isPoSA {
+		//Check tx permission
+		if isPermit, err := posa.IsCallerPermit(tx, pool.chain.CurrentBlock().Header()); err != nil {
+			return err
+		} else if !isPermit {
+			return ErrNoPermission
+		}
+		rate, _ := posa.CallerRate(tx, pool.chain.CurrentBlock().Header())
+		txsInpool := 0
+		if pool.pending[from] != nil {
+			txsInpool = txsInpool + pool.pending[from].Len()
+		}
+		if pool.queue[from] != nil {
+			txsInpool = txsInpool + pool.queue[from].Len()
+		}
+		if uint64(txsInpool) >= *rate {
+			return ErrRateReached
+		}
 	}
 	return nil
 }
