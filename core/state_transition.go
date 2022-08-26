@@ -18,12 +18,17 @@ package core
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/consensus/bind"
+	"github.com/ethereum/go-ethereum/core/systemcontracts"
+	"math"
+	"math/big"
+	"strings"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	"math"
-	"math/big"
 )
 
 /*
@@ -44,15 +49,16 @@ The state transitioning model does all the necessary work to work out a valid ne
 6) Derive new state root
 */
 type StateTransition struct {
-	gp         *GasPool
-	msg        Message
-	gas        uint64
-	gasPrice   *big.Int
-	initialGas uint64
-	value      *big.Int
-	data       []byte
-	state      vm.StateDB
-	evm        *vm.EVM
+	gp                *GasPool
+	msg               Message
+	gas               uint64
+	gasPrice          *big.Int
+	initialGas        uint64
+	value             *big.Int
+	data              []byte
+	state             vm.StateDB
+	evm               *vm.EVM
+	potaPermissionABI abi.ABI
 }
 
 // Message represents a message sent to a contract.
@@ -148,14 +154,19 @@ func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation b
 
 // NewStateTransition initialises and returns a new state transition object.
 func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool) *StateTransition {
+	pABI, err := abi.JSON(strings.NewReader(bind.PotaPermissionABI))
+	if err != nil {
+		panic(err)
+	}
 	return &StateTransition{
-		gp:       gp,
-		evm:      evm,
-		msg:      msg,
-		gasPrice: msg.GasPrice(),
-		value:    msg.Value(),
-		data:     msg.Data(),
-		state:    evm.StateDB,
+		gp:                gp,
+		evm:               evm,
+		msg:               msg,
+		gasPrice:          msg.GasPrice(),
+		value:             msg.Value(),
+		data:              msg.Data(),
+		state:             evm.StateDB,
+		potaPermissionABI: pABI,
 	}
 }
 
@@ -230,6 +241,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// 4. the purchased gas is enough to cover intrinsic usage
 	// 5. there is no overflow when calculating intrinsic gas
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
+	// 7. caller has enough permission to create or interact with contract
 
 	// Check clauses 1-3, buy gas if everything is correct
 	if err := st.preCheck(); err != nil {
@@ -254,6 +266,34 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// Check clause 6
 	if msg.Value().Sign() > 0 && !st.evm.Context.CanTransfer(st.state, msg.From(), msg.Value()) {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
+	}
+
+	//Check clause 7
+	permissionMethod := ""
+	if contractCreation {
+		permissionMethod = "canCreateContract"
+	} else {
+		//transactions being sent to non-contract account is not allowed
+		if st.state.GetCodeSize(*msg.To()) == 0 {
+			return nil, fmt.Errorf("sending to non-contract address is not permitted")
+		}
+		permissionMethod = "canCallContract"
+	}
+	data, err := st.potaPermissionABI.Pack(permissionMethod, sender)
+	if err != nil {
+		return nil, err
+	}
+	result, _, err := st.evm.Call(sender, common.HexToAddress(systemcontracts.PermissionContract), data, math.MaxUint64, big.NewInt(0))
+	if err != nil {
+		return nil, err
+	}
+	ret0 := new(bool)
+	out := ret0
+	if err := st.potaPermissionABI.UnpackIntoInterface(out, permissionMethod, result); err != nil {
+		return nil, err
+	}
+	if !*out {
+		return nil, fmt.Errorf("Tx is not permitted")
 	}
 
 	// Set up the initial access list.

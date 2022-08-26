@@ -142,6 +142,7 @@ type PoSA interface {
 
 	IsSystemTransaction(tx *types.Transaction, header *types.Header) (bool, error)
 	IsSystemContract(to *common.Address) bool
+	IsCallerPermit(tx *types.Transaction, header *types.Header) (bool, error)
 	EnoughDistance(chain ChainReader, header *types.Header) bool
 	IsLocalBlock(header *types.Header) bool
 	AllowLightProcess(chain ChainReader, currentHeader *types.Header) bool

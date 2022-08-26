@@ -20,6 +20,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/consensus"
 	"io/ioutil"
 	"math/big"
 	"math/rand"
@@ -57,6 +58,9 @@ func (bc *testBlockChain) CurrentBlock() *types.Block {
 		GasLimit: bc.gasLimit,
 	}, nil, nil, nil, trie.NewStackTrie(nil))
 }
+
+// Engine retrieves the blockchain's consensus engine.
+func (bc *testBlockChain) Engine() consensus.Engine { return nil }
 
 func (bc *testBlockChain) GetBlock(hash common.Hash, number uint64) *types.Block {
 	return bc.CurrentBlock()
@@ -197,7 +201,6 @@ func TestStateChangeDuringTransactionPoolReset(t *testing.T) {
 	)
 
 	// setup pool with 2 transaction in it
-	statedb.SetBalance(address, new(big.Int).SetUint64(params.Ether))
 	blockchain := &testChain{&testBlockChain{statedb, 1000000000, new(event.Feed)}, address, &trigger}
 
 	tx0 := transaction(0, 100000, key)

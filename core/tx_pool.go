@@ -18,6 +18,7 @@ package core
 
 import (
 	"errors"
+	"github.com/ethereum/go-ethereum/consensus"
 	"math"
 	"math/big"
 	"sort"
@@ -77,6 +78,13 @@ var (
 	// ErrGasLimit is returned if a transaction's requested gas limit exceeds the
 	// maximum allowance of the current block.
 	ErrGasLimit = errors.New("exceeds block gas limit")
+
+	// ErrSendToNoncontract is returned if a transaction's requested to a non-contract
+	// address.
+	ErrSendToNoncontract = errors.New("sending to non-contract address is disallowed")
+
+	// ErrNoPermission is returned if a transaction t is not permitted
+	ErrNoPermission = errors.New("Tx is not permitted")
 
 	// ErrNegativeValue is a sanity error to ensure no one is able to specify a
 	// transaction with a negative value.
@@ -139,6 +147,7 @@ type blockChain interface {
 	StateAt(root common.Hash) (*state.StateDB, error)
 
 	SubscribeChainHeadEvent(ch chan<- ChainHeadEvent) event.Subscription
+	Engine() consensus.Engine
 }
 
 // TxPoolConfig are the configuration parameters of the transaction pool.
@@ -573,6 +582,20 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if !pool.eip2718 && tx.Type() != types.LegacyTxType {
 		return ErrTxTypeNotSupported
 	}
+	//Reject transactions being sent to non-contract account
+	if tx.To() != nil && pool.currentState.GetCodeSize(*tx.To()) == 0 {
+		return ErrSendToNoncontract
+	}
+	posa, isPoSA := (pool.chain.Engine()).(consensus.PoSA)
+	if isPoSA {
+		//Check tx permission
+		if isPermit, err := posa.IsCallerPermit(tx, pool.chain.CurrentBlock().Header()); err != nil {
+			return err
+		} else if !isPermit {
+			return ErrNoPermission
+		}
+	}
+
 	// Reject transactions over defined size to prevent DOS attacks
 	if uint64(tx.Size()) > txMaxSize {
 		return ErrOversizedData

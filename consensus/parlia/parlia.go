@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/consensus/bind"
 	"io"
 	"math"
 	"math/big"
@@ -70,7 +71,8 @@ var (
 	maxSystemBalance = new(big.Int).Mul(big.NewInt(100), big.NewInt(params.Ether))
 
 	systemContracts = map[common.Address]bool{
-		common.HexToAddress(systemcontracts.ValidatorContract): true,
+		common.HexToAddress(systemcontracts.ValidatorContract):  true,
+		common.HexToAddress(systemcontracts.PermissionContract): true,
 	}
 )
 
@@ -200,8 +202,9 @@ type Parlia struct {
 
 	lock sync.RWMutex // Protects the signer fields
 
-	ethAPI          *ethapi.PublicBlockChainAPI
-	validatorSetABI abi.ABI
+	ethAPI            *ethapi.PublicBlockChainAPI
+	validatorSetABI   abi.ABI
+	potaPermissionABI abi.ABI
 
 	// The fields below are for testing only
 	fakeDiff bool // Skip difficulty verifications
@@ -231,23 +234,25 @@ func New(
 	if err != nil {
 		panic(err)
 	}
-	vABI, err := abi.JSON(strings.NewReader(validatorSetABI))
+	vABI, err := abi.JSON(strings.NewReader(bind.ValidatorSetABI))
 	if err != nil {
 		panic(err)
 	}
+	pABI, err := abi.JSON(strings.NewReader(bind.PotaPermissionABI))
 	if err != nil {
 		panic(err)
 	}
 	c := &Parlia{
-		chainConfig:     chainConfig,
-		config:          parliaConfig,
-		genesisHash:     genesisHash,
-		db:              db,
-		ethAPI:          ethAPI,
-		recentSnaps:     recentSnaps,
-		signatures:      signatures,
-		validatorSetABI: vABI,
-		signer:          types.NewEIP155Signer(chainConfig.ChainID),
+		chainConfig:       chainConfig,
+		config:            parliaConfig,
+		genesisHash:       genesisHash,
+		db:                db,
+		ethAPI:            ethAPI,
+		recentSnaps:       recentSnaps,
+		signatures:        signatures,
+		validatorSetABI:   vABI,
+		potaPermissionABI: pABI,
+		signer:            types.NewEIP155Signer(chainConfig.ChainID),
 	}
 
 	return c
@@ -273,6 +278,50 @@ func (p *Parlia) IsSystemContract(to *common.Address) bool {
 		return false
 	}
 	return isToSystemContract(*to)
+}
+
+// IsCallerPermit get caller's permission from PermisstionContract
+func (p *Parlia) IsCallerPermit(tx *types.Transaction, header *types.Header) (bool, error) {
+	// block
+	blockNr := rpc.BlockNumberOrHashWithHash(header.Hash(), false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // cancel when we are finished consuming integers
+
+	//check create contract permission
+	method := ""
+	if tx.To() == nil {
+		method = "canCreateContract"
+	} else {
+		// method
+		method = "canCallContract"
+	}
+
+	sender, err := types.Sender(p.signer, tx)
+	data, err := p.potaPermissionABI.Pack(method, sender)
+	if err != nil {
+		log.Error("Unable to pack tx", "method", method, "error", err)
+		return false, err
+	}
+	// call
+	msgData := (hexutil.Bytes)(data)
+	toAddress := common.HexToAddress(systemcontracts.PermissionContract)
+	gas := (hexutil.Uint64)(uint64(math.MaxUint64 / 2))
+	result, err := p.ethAPI.Call(ctx, ethapi.CallArgs{
+		Gas:  &gas,
+		To:   &toAddress,
+		Data: &msgData,
+	}, blockNr, nil)
+	if err != nil {
+		return false, err
+	}
+	ret0 := new(bool)
+	out := ret0
+
+	if err := p.potaPermissionABI.UnpackIntoInterface(out, method, result); err != nil {
+		return false, err
+	}
+	return *out, nil
 }
 
 // Author implements consensus.Engine, returning the SystemAddress
@@ -1007,7 +1056,7 @@ func (p *Parlia) initContract(state *state.StateDB, header *types.Header, chain 
 	method := "init"
 	// contracts
 	contracts := []string{
-		systemcontracts.ValidatorContract,
+		systemcontracts.ValidatorContract, systemcontracts.PermissionContract,
 	}
 	// get packed data
 	data, err := p.validatorSetABI.Pack(method)
